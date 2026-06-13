@@ -392,16 +392,24 @@
   </div>
 </header>
 
-<!-- PANTALLA DE CARGA AUTOMÁTICA -->
+<!-- ZONA DE CARGA -->
 <div id="zona-carga">
-  <div style="max-width:500px;margin:80px auto;text-align:center;padding:0 24px;">
-    <div style="font-size:3rem;margin-bottom:20px;">🚒</div>
-    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:8px;">Cargando listado de bomberos...</h2>
-    <p id="progreso-texto" style="color:#6B6B6B;font-size:0.9rem;margin-bottom:20px;">Conectando con el repositorio</p>
-    <div class="progress-bar-wrap" style="max-width:320px;margin:0 auto 12px;">
-      <div class="progress-bar-fill" id="progress-fill"></div>
+  <div style="max-width:600px;margin:0 auto;padding:48px 24px;">
+    <div class="drop-area" id="drop-area">
+      <span class="drop-icon">📂</span>
+      <h2>Cargar listado de bomberos</h2>
+      <p>Arrastra tu archivo Excel aquí o haz clic para seleccionarlo</p>
+      <button class="btn-cargar" onclick="document.getElementById('input-archivo').click()">Seleccionar archivo .xlsx</button>
+      <div class="formato-hint">Formato esperado: Cuerpo · Compañía · Rut · Nombre · Apellido Paterno · Apellido Materno · Fono Fijo · Email · Fono Móvil · Sub-Estado · Cargo</div>
     </div>
-    <p id="progreso-sub" style="color:#aaa;font-size:0.8rem;"></p>
+    <input type="file" id="input-archivo" accept=".xlsx,.xls">
+    <div id="progreso" style="display:none;margin-top:24px;text-align:center;">
+      <p id="progreso-texto">Leyendo archivo...</p>
+      <div class="progress-bar-wrap" style="margin:12px 0;">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <p id="progreso-sub" style="font-size:0.85rem;color:#aaa;"></p>
+    </div>
   </div>
 </div>
 
@@ -434,10 +442,10 @@
     </div>
   </div>
 
-  <!-- STATS -->
+  <!-- STATS + ACCIONES -->
   <div class="stats-bar">
     <p class="stats-texto" id="stats-texto">—</p>
-    <span id="ultima-actualizacion" style="font-size:0.78rem;color:#aaa;"></span>
+    <button class="btn-cambiar" onclick="reiniciar()">⬆ Cambiar archivo</button>
   </div>
 
   <!-- TABLA -->
@@ -466,9 +474,6 @@
 </div>
 
 <script>
-// ── CONFIGURACIÓN ──────────────────────────────────────────────
-const EXCEL_URL = 'https://raw.githubusercontent.com/diegotracx/buscador-bomberos/main/listado_bomberos.xlsx';
-
 // ── ESTADO GLOBAL ──────────────────────────────────────────────
 let allRows = [];
 let filtered = [];
@@ -477,44 +482,54 @@ const POR_PAGINA = 50;
 let sortCol = -1;
 let sortAsc = true;
 
-// ── CARGA AUTOMÁTICA AL INICIAR ────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  cargarDesdeGitHub();
+// ── CARGA DE ARCHIVO ────────────────────────────────────────────
+const dropArea = document.getElementById('drop-area');
+const inputArchivo = document.getElementById('input-archivo');
+
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropArea.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) procesarArchivo(file);
+});
+inputArchivo.addEventListener('change', e => {
+  if (e.target.files[0]) procesarArchivo(e.target.files[0]);
 });
 
-async function cargarDesdeGitHub() {
-  setProgreso('Descargando listado desde GitHub...', 10);
-  try {
-    const response = await fetch(EXCEL_URL + '?t=' + Date.now()); // evitar caché
-    if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
+function procesarArchivo(file) {
+  document.getElementById('progreso').style.display = 'block';
+  document.getElementById('progreso-texto').textContent = `Leyendo "${file.name}"...`;
+  setProgreso('', 10);
 
-    setProgreso('Descarga completa, procesando datos...', 50);
-    const buffer = await response.arrayBuffer();
-
-    setProgreso('Leyendo Excel...', 70);
-    await new Promise(r => setTimeout(r, 30)); // dar tiempo al navegador a pintar
-
-    const wb = XLSX.read(buffer, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-
-    setProgreso('Preparando buscador...', 90);
-    const rows = data.slice(1).filter(r => r.some(v => v !== ''));
-    allRows = rows.map(r => r.map(v => String(v ?? '').trim()));
-
-    setProgreso('¡Listo!', 100);
-    setTimeout(() => iniciarApp(), 400);
-
-  } catch(err) {
-    document.getElementById('progreso-texto').textContent = '⚠️ No se pudo cargar el listado';
-    document.getElementById('progreso-sub').textContent = err.message;
-    document.getElementById('progress-fill').style.background = '#C8102E';
-  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    setProgreso('', 40);
+    document.getElementById('progreso-sub').textContent = 'Procesando datos...';
+    setTimeout(() => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        setProgreso('', 70);
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        setProgreso('', 90);
+        const rows = data.slice(1).filter(r => r.some(v => v !== ''));
+        allRows = rows.map(r => r.map(v => String(v ?? '').trim()));
+        setProgreso('¡Listo!', 100);
+        setTimeout(() => iniciarApp(), 300);
+      } catch(err) {
+        alert('Error al leer el archivo: ' + err.message);
+        document.getElementById('progreso').style.display = 'none';
+      }
+    }, 50);
+  };
+  reader.readAsArrayBuffer(file);
 }
 
-function setProgreso(texto, pct) {
-  document.getElementById('progreso-texto').textContent = texto;
+function setProgreso(sub, pct) {
   document.getElementById('progress-fill').style.width = pct + '%';
+  if (sub) document.getElementById('progreso-sub').textContent = sub;
 }
 
 // ── INICIAR APP ────────────────────────────────────────────────
@@ -526,10 +541,6 @@ function iniciarApp() {
   const badge = document.getElementById('badge-total');
   badge.style.display = 'inline-block';
   badge.textContent = allRows.length.toLocaleString('es-CL') + ' bomberos';
-
-  // Fecha de carga
-  const hoy = new Date().toLocaleDateString('es-CL', { day:'2-digit', month:'long', year:'numeric' });
-  document.getElementById('ultima-actualizacion').textContent = 'Datos cargados el ' + hoy;
 
   // Poblar filtros
   poblarSelect('filtro-cuerpo', [...new Set(allRows.map(r => r[0]))].filter(Boolean).sort());
@@ -704,7 +715,7 @@ function ordenarPor(col) {
   filtrarYRenderizar();
 }
 
-// ── LIMPIAR ────────────────────────────────────────────────────
+// ── LIMPIAR / REINICIAR ────────────────────────────────────────
 function limpiarFiltros() {
   document.getElementById('busq-texto').value = '';
   document.getElementById('filtro-cuerpo').value = '';
@@ -714,6 +725,16 @@ function limpiarFiltros() {
   sortCol = -1;
   sortAsc = true;
   filtrarYRenderizar();
+}
+
+function reiniciar() {
+  allRows = []; filtered = [];
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('zona-carga').style.display = 'block';
+  document.getElementById('progreso').style.display = 'none';
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('badge-total').style.display = 'none';
+  document.getElementById('input-archivo').value = '';
 }
 
 </script>
